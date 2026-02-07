@@ -175,7 +175,7 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
         json.dump(results, f, indent=2, ensure_ascii=False)
 
 
-@click.command()
+@click.command(no_args_is_help=True)
 @click.option(
     '--file',
     '-f',
