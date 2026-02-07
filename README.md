@@ -32,7 +32,7 @@ filetype:sql database
 
 ## Config File (API Keys)
 
-Edit [config.json](config.json) to add API keys. For Bing and SearXNG, set:
+Edit [config.json](config.json) to add API keys. The tools load this file automatically.
 
 ```json
 {
@@ -71,13 +71,13 @@ python google_dork_cli.py -f dorks.txt
 python google_dork_cli.py -t example.com -f dorks.txt
 
 # Use Bing Web Search API
-python google_dork_cli.py -e bing -c config.json -f dorks.txt
+python google_dork_cli.py -e bing -f dorks.txt
 
 # Use DuckDuckGo (no API key)
 python google_dork_cli.py -e duckduckgo -f dorks.txt
 
 # Use SearXNG (self-hosted)
-python google_dork_cli.py -e searxng -c config.json -f dorks.txt
+python google_dork_cli.py -e searxng -f dorks.txt
 
 # Custom output prefix
 python google_dork_cli.py -f dorks.txt -o my_results
@@ -113,7 +113,6 @@ site:example.com password
 | `--file` | `-f` | Path | Required | Path to dork queries file |
 | `--target` | `-t` | String | None | Target domain (adds `site:domain`) |
 | `--engine` | `-e` | Choice | google | Search engine (google, bing, duckduckgo, searxng) |
-| `--config` | `-c` | Path | config.json | Config file with API keys |
 | `--output` | `-o` | Path | results | Output file prefix |
 | `--delay` | `-d` | Float | 2.0 | Delay between requests (seconds) |
 | `--csv` | | Flag | True | Save to CSV file |
@@ -143,9 +142,9 @@ Use [advanced.py](advanced.py) for proxy rotation and caching:
 ```bash
 python advanced.py -f dorks.txt --cache
 python advanced.py -t example.com -f dorks.txt --proxies proxies.txt
-python advanced.py -e bing -c config.json -f dorks.txt --cache
+python advanced.py -e bing -f dorks.txt --cache
 python advanced.py -e duckduckgo -f dorks.txt --cache
-python advanced.py -e searxng -c config.json -f dorks.txt --cache
+python advanced.py -e searxng -f dorks.txt --cache
 ```
 
 ## Troubleshooting

@@ -464,8 +464,6 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
               help='Target domain (site:example.com)')
 @click.option('--engine', '-e', type=click.Choice(['google', 'bing', 'duckduckgo', 'searxng'], case_sensitive=False),
               default='google', help='Search engine to use: google, bing, duckduckgo, or searxng')
-@click.option('--config', '-c', type=click.Path(exists=False),
-              default='config.json', help='Path to config.json for API keys')
 @click.option('--output', '-o', type=click.Path(), default='results',
               help='Output file prefix')
 @click.option('--delay', '-d', type=float, default=2.0,
@@ -480,7 +478,7 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
               help='Save to JSON')
 @click.option('--console', is_flag=True, default=False,
               help='Print to console')
-def main(file, target, engine, config, output, delay, proxies, cache, output_csv, output_json, console):
+def main(file, target, engine, output, delay, proxies, cache, output_csv, output_json, console):
     """
     Advanced Google Dork CLI Tool with Proxy & Cache Support
     """
@@ -503,9 +501,10 @@ def main(file, target, engine, config, output, delay, proxies, cache, output_csv
     if target:
         queries = [f'site:{target} {query}' for query in queries]
     
+    config_path = 'config.json'
     engine = engine.lower()
-    bing_config = resolve_bing_config(config)
-    searxng_config = resolve_searxng_config(config)
+    bing_config = resolve_bing_config(config_path)
+    searxng_config = resolve_searxng_config(config_path)
     if engine == 'bing' and not bing_config['api_key']:
         click.echo('Missing Bing API key. Set BING_API_KEY or update config.json.', err=True)
         return

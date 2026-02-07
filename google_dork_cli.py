@@ -384,13 +384,6 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
     help='Search engine to use: google, bing, duckduckgo, or searxng'
 )
 @click.option(
-    '--config',
-    '-c',
-    type=click.Path(exists=False),
-    default='config.json',
-    help='Path to config.json for API keys. Default: config.json'
-)
-@click.option(
     '--output',
     '-o',
     type=click.Path(),
@@ -424,7 +417,7 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
     default=False,
     help='Print results to console'
 )
-def main(file, target, engine, config, output, delay, output_csv, output_json, console):
+def main(file, target, engine, output, delay, output_csv, output_json, console):
     """
     Google Dork CLI Tool
     
@@ -433,9 +426,9 @@ def main(file, target, engine, config, output, delay, output_csv, output_json, c
     Examples:
         python google_dork_cli.py --file dorks.txt --output results --delay 3
         python google_dork_cli.py -t example.com -f dorks.txt
-        python google_dork_cli.py -e bing -c config.json -f dorks.txt
+        python google_dork_cli.py -e bing -f dorks.txt
         python google_dork_cli.py -e duckduckgo -f dorks.txt
-        python google_dork_cli.py -e searxng -c config.json -f dorks.txt
+        python google_dork_cli.py -e searxng -f dorks.txt
     """
     click.echo('🔍 Google Dork CLI Tool')
     click.echo('=' * 50)
@@ -456,9 +449,10 @@ def main(file, target, engine, config, output, delay, output_csv, output_json, c
     if target:
         queries = [f'site:{target} {query}' for query in queries]
     
+    config_path = 'config.json'
     engine = engine.lower()
-    bing_config = resolve_bing_config(config)
-    searxng_config = resolve_searxng_config(config)
+    bing_config = resolve_bing_config(config_path)
+    searxng_config = resolve_searxng_config(config_path)
     if engine == 'bing' and not bing_config['api_key']:
         click.echo('Missing Bing API key. Set BING_API_KEY or update config.json.', err=True)
         return
