@@ -1,0 +1,19 @@
+# Example Proxy File
+# One proxy per line
+# Supports http, https, and socks5
+
+# Examples:
+# http://185.10.127.82:8080
+# https://104.21.58.251:3128
+# socks5://192.241.239.166:1080
+
+# Get free proxies from:
+# - https://www.freeproxylists.net/
+# - https://www.proxy-list.download/
+# - https://free-proxy-list.com/
+
+# Get paid proxies for better reliability:
+# - Bright Data (Luminati)
+# - Oxylabs
+# - ScraperAPI
+# - Apify

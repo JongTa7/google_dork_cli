@@ -1,0 +1,6 @@
+site:github.com password
+site:pastebin.com api key
+intitle:"index of" config
+filetype:sql database
+inurl:admin login
+site:linkedin.com email
