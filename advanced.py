@@ -20,6 +20,7 @@ from urllib3.util.retry import Retry
 
 
 DEFAULT_BING_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+DEFAULT_BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 DEFAULT_SEARXNG_ENDPOINT = "http://localhost:8080"
 
 
@@ -52,6 +53,17 @@ def resolve_bing_config(config_path: str) -> Dict[str, Optional[str]]:
     )
     if not endpoint:
         endpoint = DEFAULT_BING_ENDPOINT
+    return {"api_key": api_key, "endpoint": endpoint}
+
+
+def resolve_brave_config(config_path: str) -> Dict[str, Optional[str]]:
+    config = load_config(config_path)
+    api_key = os.getenv("BRAVE_API_KEY") or get_config_value(config, ["brave", "api_key"])
+    endpoint = os.getenv("BRAVE_ENDPOINT") or get_config_value(
+        config, ["brave", "endpoint"], DEFAULT_BRAVE_ENDPOINT
+    )
+    if not endpoint:
+        endpoint = DEFAULT_BRAVE_ENDPOINT
     return {"api_key": api_key, "endpoint": endpoint}
 
 
@@ -175,6 +187,8 @@ class AdvancedGoogleDorkClient:
         engine: str = "google",
         bing_api_key: Optional[str] = None,
         bing_endpoint: Optional[str] = None,
+        brave_api_key: Optional[str] = None,
+        brave_endpoint: Optional[str] = None,
         searxng_api_key: Optional[str] = None,
         searxng_endpoint: Optional[str] = None,
     ):
@@ -185,6 +199,8 @@ class AdvancedGoogleDorkClient:
         self.engine = engine.lower()
         self.bing_api_key = bing_api_key
         self.bing_endpoint = bing_endpoint or DEFAULT_BING_ENDPOINT
+        self.brave_api_key = brave_api_key
+        self.brave_endpoint = brave_endpoint or DEFAULT_BRAVE_ENDPOINT
         self.searxng_api_key = searxng_api_key
         self.searxng_endpoint = searxng_endpoint or DEFAULT_SEARXNG_ENDPOINT
         self.session = self._create_session()
@@ -238,6 +254,8 @@ class AdvancedGoogleDorkClient:
         
         if self.engine == 'bing':
             results = self._search_bing(query)
+        elif self.engine == 'brave':
+            results = self._search_brave(query)
         elif self.engine == 'duckduckgo':
             results = self._search_duckduckgo(query)
         elif self.engine == 'searxng':
@@ -333,6 +351,45 @@ class AdvancedGoogleDorkClient:
                     'title': item.get('name', ''),
                     'url': url_str,
                     'snippet': item.get('snippet', '') or item.get('description', ''),
+                    'domain': urlparse(url_str).netloc if url_str else '',
+                })
+        except Exception as e:
+            click.echo(f'Search error for "{query}": {str(e)}', err=True)
+        
+        return results
+
+    def _search_brave(self, query: str) -> List[Dict[str, str]]:
+        if not self.brave_api_key:
+            click.echo('Brave API key is missing. Set BRAVE_API_KEY or config.json.', err=True)
+            return []
+        
+        results = []
+        try:
+            headers = {
+                'X-Subscription-Token': self.brave_api_key,
+                'User-Agent': random.choice(self.USER_AGENTS),
+            }
+            params = {
+                'q': query,
+                'count': 10,
+                'offset': 0,
+            }
+            proxy = self.proxies.get_next_proxy() if self.proxies else None
+            response = self.session.get(
+                self.brave_endpoint,
+                headers=headers,
+                params=params,
+                proxies=proxy,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get('web', {}).get('results', []):
+                url_str = item.get('url', '')
+                results.append({
+                    'title': item.get('title', ''),
+                    'url': url_str,
+                    'snippet': item.get('description', '') or item.get('snippet', ''),
                     'domain': urlparse(url_str).netloc if url_str else '',
                 })
         except Exception as e:
@@ -462,8 +519,8 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
               help='Dork queries file')
 @click.option('--target', '-t', type=str, default=None,
               help='Target domain (site:example.com)')
-@click.option('--engine', '-e', type=click.Choice(['google', 'bing', 'duckduckgo', 'searxng'], case_sensitive=False),
-              default='google', help='Search engine to use: google, bing, duckduckgo, or searxng')
+@click.option('--engine', '-e', type=click.Choice(['google', 'bing', 'brave', 'duckduckgo', 'searxng'], case_sensitive=False),
+              default='google', help='Search engine to use: google, bing, brave, duckduckgo, or searxng')
 @click.option('--output', '-o', type=click.Path(), default='results',
               help='Output file prefix')
 @click.option('--delay', '-d', type=float, default=2.0,
@@ -504,9 +561,13 @@ def main(file, target, engine, output, delay, proxies, cache, output_csv, output
     config_path = 'config.json'
     engine = engine.lower()
     bing_config = resolve_bing_config(config_path)
+    brave_config = resolve_brave_config(config_path)
     searxng_config = resolve_searxng_config(config_path)
     if engine == 'bing' and not bing_config['api_key']:
         click.echo('Missing Bing API key. Set BING_API_KEY or update config.json.', err=True)
+        return
+    if engine == 'brave' and not brave_config['api_key']:
+        click.echo('Missing Brave API key. Set BRAVE_API_KEY or update config.json.', err=True)
         return
     if engine == 'searxng' and not searxng_config['endpoint']:
         click.echo('Missing SearXNG endpoint. Set SEARXNG_ENDPOINT or update config.json.', err=True)
@@ -536,6 +597,8 @@ def main(file, target, engine, output, delay, proxies, cache, output_csv, output
         engine=engine,
         bing_api_key=bing_config['api_key'],
         bing_endpoint=bing_config['endpoint'],
+        brave_api_key=brave_config['api_key'],
+        brave_endpoint=brave_config['endpoint'],
         searxng_api_key=searxng_config['api_key'],
         searxng_endpoint=searxng_config['endpoint']
     )

@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 
 
 DEFAULT_BING_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+DEFAULT_BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 DEFAULT_SEARXNG_ENDPOINT = "http://localhost:8080"
 
 
@@ -50,6 +51,17 @@ def resolve_bing_config(config_path: str) -> Dict[str, Optional[str]]:
     )
     if not endpoint:
         endpoint = DEFAULT_BING_ENDPOINT
+    return {"api_key": api_key, "endpoint": endpoint}
+
+
+def resolve_brave_config(config_path: str) -> Dict[str, Optional[str]]:
+    config = load_config(config_path)
+    api_key = os.getenv("BRAVE_API_KEY") or get_config_value(config, ["brave", "api_key"])
+    endpoint = os.getenv("BRAVE_ENDPOINT") or get_config_value(
+        config, ["brave", "endpoint"], DEFAULT_BRAVE_ENDPOINT
+    )
+    if not endpoint:
+        endpoint = DEFAULT_BRAVE_ENDPOINT
     return {"api_key": api_key, "endpoint": endpoint}
 
 
@@ -92,6 +104,8 @@ class GoogleDorkClient:
         engine: str = "google",
         bing_api_key: Optional[str] = None,
         bing_endpoint: Optional[str] = None,
+        brave_api_key: Optional[str] = None,
+        brave_endpoint: Optional[str] = None,
         searxng_api_key: Optional[str] = None,
         searxng_endpoint: Optional[str] = None,
     ):
@@ -110,6 +124,8 @@ class GoogleDorkClient:
         self.engine = engine.lower()
         self.bing_api_key = bing_api_key
         self.bing_endpoint = bing_endpoint or DEFAULT_BING_ENDPOINT
+        self.brave_api_key = brave_api_key
+        self.brave_endpoint = brave_endpoint or DEFAULT_BRAVE_ENDPOINT
         self.searxng_api_key = searxng_api_key
         self.searxng_endpoint = searxng_endpoint or DEFAULT_SEARXNG_ENDPOINT
         self.session = requests.Session()
@@ -130,6 +146,8 @@ class GoogleDorkClient:
     def search(self, query: str) -> List[Dict[str, str]]:
         if self.engine == "bing":
             return self._search_bing(query)
+        if self.engine == "brave":
+            return self._search_brave(query)
         if self.engine == "duckduckgo":
             return self._search_duckduckgo(query)
         if self.engine == "searxng":
@@ -201,6 +219,45 @@ class GoogleDorkClient:
         """
         if not self.bing_api_key:
             click.echo('Bing API key is missing. Set BING_API_KEY or config.json.', err=True)
+            return []
+
+    def _search_brave(self, query: str) -> List[Dict[str, str]]:
+        """
+        Perform a Brave Search API query
+        """
+        if not self.brave_api_key:
+            click.echo('Brave API key is missing. Set BRAVE_API_KEY or config.json.', err=True)
+            return []
+        
+        results = []
+        try:
+            time.sleep(self.delay + random.uniform(0, 1))
+            headers = {
+                'X-Subscription-Token': self.brave_api_key,
+                'User-Agent': random.choice(self.USER_AGENTS),
+            }
+            params = {
+                'q': query,
+                'count': 10,
+                'offset': 0,
+            }
+            response = self.session.get(
+                self.brave_endpoint,
+                headers=headers,
+                params=params,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get('web', {}).get('results', []):
+                results.append({
+                    'title': item.get('title', ''),
+                    'url': item.get('url', ''),
+                    'snippet': item.get('description', '') or item.get('snippet', ''),
+                })
+            return results
+        except requests.exceptions.RequestException as e:
+            click.echo(f'Error searching for "{query}": {str(e)}', err=True)
             return []
         
         results = []
@@ -379,9 +436,9 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
 @click.option(
     '--engine',
     '-e',
-    type=click.Choice(['google', 'bing', 'duckduckgo', 'searxng'], case_sensitive=False),
+    type=click.Choice(['google', 'bing', 'brave', 'duckduckgo', 'searxng'], case_sensitive=False),
     default='google',
-    help='Search engine to use: google, bing, duckduckgo, or searxng'
+    help='Search engine to use: google, bing, brave, duckduckgo, or searxng'
 )
 @click.option(
     '--output',
@@ -427,6 +484,7 @@ def main(file, target, engine, output, delay, output_csv, output_json, console):
         python google_dork_cli.py --file dorks.txt --output results --delay 3
         python google_dork_cli.py -t example.com -f dorks.txt
         python google_dork_cli.py -e bing -f dorks.txt
+        python google_dork_cli.py -e brave -f dorks.txt
         python google_dork_cli.py -e duckduckgo -f dorks.txt
         python google_dork_cli.py -e searxng -f dorks.txt
     """
@@ -452,9 +510,13 @@ def main(file, target, engine, output, delay, output_csv, output_json, console):
     config_path = 'config.json'
     engine = engine.lower()
     bing_config = resolve_bing_config(config_path)
+    brave_config = resolve_brave_config(config_path)
     searxng_config = resolve_searxng_config(config_path)
     if engine == 'bing' and not bing_config['api_key']:
         click.echo('Missing Bing API key. Set BING_API_KEY or update config.json.', err=True)
+        return
+    if engine == 'brave' and not brave_config['api_key']:
+        click.echo('Missing Brave API key. Set BRAVE_API_KEY or update config.json.', err=True)
         return
     if engine == 'searxng' and not searxng_config['endpoint']:
         click.echo('Missing SearXNG endpoint. Set SEARXNG_ENDPOINT or update config.json.', err=True)
@@ -474,6 +536,8 @@ def main(file, target, engine, output, delay, output_csv, output_json, console):
         engine=engine,
         bing_api_key=bing_config['api_key'],
         bing_endpoint=bing_config['endpoint'],
+        brave_api_key=brave_config['api_key'],
+        brave_endpoint=brave_config['endpoint'],
         searxng_api_key=searxng_config['api_key'],
         searxng_endpoint=searxng_config['endpoint']
     )

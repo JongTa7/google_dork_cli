@@ -9,7 +9,7 @@ A Python command-line tool that runs Google dork queries from a text file and sa
 - CSV and JSON output
 - Optional console output
 - Target a specific domain with `-t` (adds `site:domain`)
-- Selectable search engine with `-e` (google, bing, duckduckgo, searxng)
+- Selectable search engine with `-e` (google, bing, brave, duckduckgo, searxng)
 - Config file support for API keys and endpoints
 
 ## Installation
@@ -40,6 +40,10 @@ Edit [config.json](config.json) to add API keys. The tools load this file automa
 		"api_key": "YOUR_KEY",
 		"endpoint": "https://api.bing.microsoft.com/v7.0/search"
 	},
+	"brave": {
+		"api_key": "YOUR_KEY",
+		"endpoint": "https://api.search.brave.com/res/v1/web/search"
+	},
 	"searxng": {
 		"api_key": "",
 		"endpoint": "http://localhost:8080"
@@ -52,6 +56,8 @@ You can also set environment variables instead of editing the file:
 ```bash
 export BING_API_KEY="YOUR_KEY"
 export BING_ENDPOINT="https://api.bing.microsoft.com/v7.0/search"
+export BRAVE_API_KEY="YOUR_KEY"
+export BRAVE_ENDPOINT="https://api.search.brave.com/res/v1/web/search"
 export SEARXNG_API_KEY=""
 export SEARXNG_ENDPOINT="http://localhost:8080"
 ```
@@ -72,6 +78,9 @@ python google_dork_cli.py -t example.com -f dorks.txt
 
 # Use Bing Web Search API
 python google_dork_cli.py -e bing -f dorks.txt
+
+# Use Brave Search API
+python google_dork_cli.py -e brave -f dorks.txt
 
 # Use DuckDuckGo (no API key)
 python google_dork_cli.py -e duckduckgo -f dorks.txt
@@ -112,7 +121,7 @@ site:example.com password
 |--------|-------|------|---------|-------------|
 | `--file` | `-f` | Path | Required | Path to dork queries file |
 | `--target` | `-t` | String | None | Target domain (adds `site:domain`) |
-| `--engine` | `-e` | Choice | google | Search engine (google, bing, duckduckgo, searxng) |
+| `--engine` | `-e` | Choice | google | Search engine (google, bing, brave, duckduckgo, searxng) |
 | `--output` | `-o` | Path | results | Output file prefix |
 | `--delay` | `-d` | Float | 2.0 | Delay between requests (seconds) |
 | `--csv` | | Flag | True | Save to CSV file |
@@ -143,6 +152,7 @@ Use [advanced.py](advanced.py) for proxy rotation and caching:
 python advanced.py -f dorks.txt --cache
 python advanced.py -t example.com -f dorks.txt --proxies proxies.txt
 python advanced.py -e bing -f dorks.txt --cache
+python advanced.py -e brave -f dorks.txt --cache
 python advanced.py -e duckduckgo -f dorks.txt --cache
 python advanced.py -e searxng -f dorks.txt --cache
 ```
