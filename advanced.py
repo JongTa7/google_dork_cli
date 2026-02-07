@@ -232,12 +232,14 @@ class AdvancedGoogleDorkClient:
     def search_multiple(self, queries: List[str], progress: bool = True) -> Dict:
         """Search multiple queries with progress tracking"""
         all_results = {}
-        iterator = click.progressbar(queries, label='Searching') if progress else queries
-        
-        for query in iterator:
-            if not progress:
+        if progress:
+            with click.progressbar(queries, label='Searching') as iterator:
+                for query in iterator:
+                    all_results[query] = self.search(query)
+        else:
+            for query in queries:
                 click.echo(f'Searching: {query}')
-            all_results[query] = self.search(query)
+                all_results[query] = self.search(query)
         
         return all_results
 
