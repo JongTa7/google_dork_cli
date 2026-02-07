@@ -19,6 +19,41 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
+DEFAULT_BING_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+
+
+def load_config(path: str) -> Dict:
+    if not path:
+        return {}
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def get_config_value(config: Dict, keys: List[str], default=None):
+    value = config
+    for key in keys:
+        if not isinstance(value, dict) or key not in value:
+            return default
+        value = value[key]
+    return value
+
+
+def resolve_bing_config(config_path: str) -> Dict[str, Optional[str]]:
+    config = load_config(config_path)
+    api_key = os.getenv("BING_API_KEY") or get_config_value(config, ["bing", "api_key"])
+    endpoint = os.getenv("BING_ENDPOINT") or get_config_value(
+        config, ["bing", "endpoint"], DEFAULT_BING_ENDPOINT
+    )
+    if not endpoint:
+        endpoint = DEFAULT_BING_ENDPOINT
+    return {"api_key": api_key, "endpoint": endpoint}
+
+
 class ProxyRotation:
     """Manages proxy rotation for requests"""
     
@@ -119,12 +154,23 @@ class AdvancedGoogleDorkClient:
         'https://www.startpage.com/',
     ]
     
-    def __init__(self, delay: float = 2.0, timeout: int = 10, use_cache: bool = False, 
-                 proxies: ProxyRotation = None):
+    def __init__(
+        self,
+        delay: float = 2.0,
+        timeout: int = 10,
+        use_cache: bool = False,
+        proxies: ProxyRotation = None,
+        engine: str = "google",
+        bing_api_key: Optional[str] = None,
+        bing_endpoint: Optional[str] = None,
+    ):
         self.delay = delay
         self.timeout = timeout
         self.proxies = proxies or ProxyRotation()
         self.cache = CacheManager() if use_cache else None
+        self.engine = engine.lower()
+        self.bing_api_key = bing_api_key
+        self.bing_endpoint = bing_endpoint or DEFAULT_BING_ENDPOINT
         self.session = self._create_session()
     
     def _create_session(self) -> requests.Session:
@@ -174,6 +220,17 @@ class AdvancedGoogleDorkClient:
         # Add delay
         time.sleep(self.delay + random.uniform(0, 1))
         
+        if self.engine == 'bing':
+            results = self._search_bing(query)
+        else:
+            results = self._search_google(query)
+        
+        if self.cache:
+            self.cache.set(query, results)
+        
+        return results
+
+    def _search_google(self, query: str) -> List[Dict[str, str]]:
         results = []
         try:
             url = 'https://www.google.com/search'
@@ -196,7 +253,6 @@ class AdvancedGoogleDorkClient:
             )
             response.raise_for_status()
             
-            # Parse results
             soup = BeautifulSoup(response.content, 'html.parser')
             
             for result in soup.find_all('div', class_='g'):
@@ -219,11 +275,46 @@ class AdvancedGoogleDorkClient:
                             })
                 except Exception:
                     continue
+        except Exception as e:
+            click.echo(f'Search error for "{query}": {str(e)}', err=True)
+        
+        return results
+
+    def _search_bing(self, query: str) -> List[Dict[str, str]]:
+        if not self.bing_api_key:
+            click.echo('Bing API key is missing. Set BING_API_KEY or config.json.', err=True)
+            return []
+        
+        results = []
+        try:
+            headers = {
+                'Ocp-Apim-Subscription-Key': self.bing_api_key,
+                'User-Agent': random.choice(self.USER_AGENTS),
+            }
+            params = {
+                'q': query,
+                'count': 10,
+                'offset': 0,
+            }
+            proxy = self.proxies.get_next_proxy() if self.proxies else None
             
-            # Cache results
-            if self.cache:
-                self.cache.set(query, results)
-            
+            response = self.session.get(
+                self.bing_endpoint,
+                headers=headers,
+                params=params,
+                proxies=proxy,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get('webPages', {}).get('value', []):
+                url_str = item.get('url', '')
+                results.append({
+                    'title': item.get('name', ''),
+                    'url': url_str,
+                    'snippet': item.get('snippet', '') or item.get('description', ''),
+                    'domain': urlparse(url_str).netloc if url_str else '',
+                })
         except Exception as e:
             click.echo(f'Search error for "{query}": {str(e)}', err=True)
         
@@ -272,6 +363,10 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
               help='Dork queries file')
 @click.option('--target', '-t', type=str, default=None,
               help='Target domain (site:example.com)')
+@click.option('--engine', '-e', type=click.Choice(['google', 'bing'], case_sensitive=False),
+              default='google', help='Search engine to use: google or bing')
+@click.option('--config', '-c', type=click.Path(exists=False),
+              default='config.json', help='Path to config.json for API keys')
 @click.option('--output', '-o', type=click.Path(), default='results',
               help='Output file prefix')
 @click.option('--delay', '-d', type=float, default=2.0,
@@ -286,7 +381,7 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
               help='Save to JSON')
 @click.option('--console', is_flag=True, default=False,
               help='Print to console')
-def main(file, target, output, delay, proxies, cache, output_csv, output_json, console):
+def main(file, target, engine, config, output, delay, proxies, cache, output_csv, output_json, console):
     """
     Advanced Google Dork CLI Tool with Proxy & Cache Support
     """
@@ -309,6 +404,12 @@ def main(file, target, output, delay, proxies, cache, output_csv, output_json, c
     if target:
         queries = [f'site:{target} {query}' for query in queries]
     
+    engine = engine.lower()
+    bing_config = resolve_bing_config(config)
+    if engine == 'bing' and not bing_config['api_key']:
+        click.echo('Missing Bing API key. Set BING_API_KEY or update config.json.', err=True)
+        return
+    
     # Setup proxy rotation
     proxy_rotation = ProxyRotation()
     if target:
@@ -317,6 +418,7 @@ def main(file, target, output, delay, proxies, cache, output_csv, output_json, c
         proxy_rotation.load_from_file(proxies)
     
     click.echo(f'Queries: {len(queries)}')
+    click.echo(f'Engine: {engine}')
     click.echo(f'Delay: {delay}s')
     click.echo(f'Cache: {"Enabled" if cache else "Disabled"}')
     if proxies:
@@ -328,7 +430,10 @@ def main(file, target, output, delay, proxies, cache, output_csv, output_json, c
     client = AdvancedGoogleDorkClient(
         delay=delay,
         use_cache=cache,
-        proxies=proxy_rotation
+        proxies=proxy_rotation,
+        engine=engine,
+        bing_api_key=bing_config['api_key'],
+        bing_endpoint=bing_config['endpoint']
     )
     results = client.search_multiple(queries)
     

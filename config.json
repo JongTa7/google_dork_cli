@@ -1,0 +1,6 @@
+{
+  "bing": {
+    "api_key": "",
+    "endpoint": "https://api.bing.microsoft.com/v7.0/search"
+  }
+}

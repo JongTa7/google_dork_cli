@@ -13,8 +13,43 @@ import click
 import requests
 from urllib.parse import quote
 from datetime import datetime
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 from bs4 import BeautifulSoup
+
+
+DEFAULT_BING_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+
+
+def load_config(path: str) -> Dict:
+    if not path:
+        return {}
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def get_config_value(config: Dict, keys: List[str], default=None):
+    value = config
+    for key in keys:
+        if not isinstance(value, dict) or key not in value:
+            return default
+        value = value[key]
+    return value
+
+
+def resolve_bing_config(config_path: str) -> Dict[str, Optional[str]]:
+    config = load_config(config_path)
+    api_key = os.getenv("BING_API_KEY") or get_config_value(config, ["bing", "api_key"])
+    endpoint = os.getenv("BING_ENDPOINT") or get_config_value(
+        config, ["bing", "endpoint"], DEFAULT_BING_ENDPOINT
+    )
+    if not endpoint:
+        endpoint = DEFAULT_BING_ENDPOINT
+    return {"api_key": api_key, "endpoint": endpoint}
 
 
 class GoogleDorkClient:
@@ -38,16 +73,29 @@ class GoogleDorkClient:
         'https://duckduckgo.com/',
     ]
     
-    def __init__(self, delay: float = 2.0, timeout: int = 10):
+    def __init__(
+        self,
+        delay: float = 2.0,
+        timeout: int = 10,
+        engine: str = "google",
+        bing_api_key: Optional[str] = None,
+        bing_endpoint: Optional[str] = None,
+    ):
         """
-        Initialize the Google Dork client
+        Initialize the search client
         
         Args:
             delay: Minimum delay between requests in seconds
             timeout: Request timeout in seconds
+            engine: Search engine to use (google or bing)
+            bing_api_key: Bing Web Search API key
+            bing_endpoint: Bing Web Search API endpoint
         """
         self.delay = delay
         self.timeout = timeout
+        self.engine = engine.lower()
+        self.bing_api_key = bing_api_key
+        self.bing_endpoint = bing_endpoint or DEFAULT_BING_ENDPOINT
         self.session = requests.Session()
         
     def _get_random_headers(self) -> Dict:
@@ -64,14 +112,13 @@ class GoogleDorkClient:
         }
     
     def search(self, query: str) -> List[Dict[str, str]]:
+        if self.engine == "bing":
+            return self._search_bing(query)
+        return self._search_google(query)
+
+    def _search_google(self, query: str) -> List[Dict[str, str]]:
         """
         Perform a Google search for the given dork query
-        
-        Args:
-            query: Google dork query string
-            
-        Returns:
-            List of results with title, url, and snippet
         """
         results = []
         
@@ -119,11 +166,50 @@ class GoogleDorkClient:
                                 'url': url,
                                 'snippet': snippet,
                             })
-                except Exception as e:
+                except Exception:
                     continue
             
             return results
             
+        except requests.exceptions.RequestException as e:
+            click.echo(f'Error searching for "{query}": {str(e)}', err=True)
+            return []
+
+    def _search_bing(self, query: str) -> List[Dict[str, str]]:
+        """
+        Perform a Bing search using the Web Search API
+        """
+        if not self.bing_api_key:
+            click.echo('Bing API key is missing. Set BING_API_KEY or config.json.', err=True)
+            return []
+        
+        results = []
+        try:
+            time.sleep(self.delay + random.uniform(0, 1))
+            headers = {
+                'Ocp-Apim-Subscription-Key': self.bing_api_key,
+                'User-Agent': random.choice(self.USER_AGENTS),
+            }
+            params = {
+                'q': query,
+                'count': 10,
+                'offset': 0,
+            }
+            response = self.session.get(
+                self.bing_endpoint,
+                headers=headers,
+                params=params,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get('webPages', {}).get('value', []):
+                results.append({
+                    'title': item.get('name', ''),
+                    'url': item.get('url', ''),
+                    'snippet': item.get('snippet', '') or item.get('description', ''),
+                })
+            return results
         except requests.exceptions.RequestException as e:
             click.echo(f'Error searching for "{query}": {str(e)}', err=True)
             return []
@@ -191,6 +277,20 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
     help='Target domain to prepend (site:example.com)'
 )
 @click.option(
+    '--engine',
+    '-e',
+    type=click.Choice(['google', 'bing'], case_sensitive=False),
+    default='google',
+    help='Search engine to use: google or bing'
+)
+@click.option(
+    '--config',
+    '-c',
+    type=click.Path(exists=False),
+    default='config.json',
+    help='Path to config.json for API keys. Default: config.json'
+)
+@click.option(
     '--output',
     '-o',
     type=click.Path(),
@@ -224,7 +324,7 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
     default=False,
     help='Print results to console'
 )
-def main(file, target, output, delay, output_csv, output_json, console):
+def main(file, target, engine, config, output, delay, output_csv, output_json, console):
     """
     Google Dork CLI Tool
     
@@ -233,6 +333,7 @@ def main(file, target, output, delay, output_csv, output_json, console):
     Examples:
         python google_dork_cli.py --file dorks.txt --output results --delay 3
         python google_dork_cli.py -t example.com -f dorks.txt
+        python google_dork_cli.py -e bing -c config.json -f dorks.txt
     """
     click.echo('🔍 Google Dork CLI Tool')
     click.echo('=' * 50)
@@ -253,7 +354,14 @@ def main(file, target, output, delay, output_csv, output_json, console):
     if target:
         queries = [f'site:{target} {query}' for query in queries]
     
+    engine = engine.lower()
+    bing_config = resolve_bing_config(config)
+    if engine == 'bing' and not bing_config['api_key']:
+        click.echo('Missing Bing API key. Set BING_API_KEY or update config.json.', err=True)
+        return
+    
     click.echo(f'Found {len(queries)} queries to search')
+    click.echo(f'Engine: {engine}')
     if target:
         click.echo(f'Target domain: {target}')
     click.echo(f'Delay between requests: {delay}s')
@@ -261,7 +369,12 @@ def main(file, target, output, delay, output_csv, output_json, console):
     click.echo()
     
     # Perform searches
-    client = GoogleDorkClient(delay=delay)
+    client = GoogleDorkClient(
+        delay=delay,
+        engine=engine,
+        bing_api_key=bing_config['api_key'],
+        bing_endpoint=bing_config['endpoint']
+    )
     results = client.search_multiple(queries)
     
     # Calculate statistics

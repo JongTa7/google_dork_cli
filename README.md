@@ -9,6 +9,8 @@ A Python command-line tool that runs Google dork queries from a text file and sa
 - CSV and JSON output
 - Optional console output
 - Target a specific domain with `-t` (adds `site:domain`)
+- Selectable search engine with `-e` (google or bing)
+- Config file support for API keys
 
 ## Installation
 
@@ -28,6 +30,26 @@ inurl:admin login
 filetype:sql database
 ```
 
+## Config File (API Keys)
+
+Edit [config.json](config.json) to add API keys. For Bing, set:
+
+```json
+{
+	"bing": {
+		"api_key": "YOUR_KEY",
+		"endpoint": "https://api.bing.microsoft.com/v7.0/search"
+	}
+}
+```
+
+You can also set environment variables instead of editing the file:
+
+```bash
+export BING_API_KEY="YOUR_KEY"
+export BING_ENDPOINT="https://api.bing.microsoft.com/v7.0/search"
+```
+
 ## Usage
 
 ### Basic
@@ -41,6 +63,9 @@ python google_dork_cli.py -f dorks.txt
 ```bash
 # Target a specific domain
 python google_dork_cli.py -t example.com -f dorks.txt
+
+# Use Bing Web Search API
+python google_dork_cli.py -e bing -c config.json -f dorks.txt
 
 # Custom output prefix
 python google_dork_cli.py -f dorks.txt -o my_results
@@ -75,6 +100,8 @@ site:example.com password
 |--------|-------|------|---------|-------------|
 | `--file` | `-f` | Path | Required | Path to dork queries file |
 | `--target` | `-t` | String | None | Target domain (adds `site:domain`) |
+| `--engine` | `-e` | Choice | google | Search engine (google or bing) |
+| `--config` | `-c` | Path | config.json | Config file with API keys |
 | `--output` | `-o` | Path | results | Output file prefix |
 | `--delay` | `-d` | Float | 2.0 | Delay between requests (seconds) |
 | `--csv` | | Flag | True | Save to CSV file |
@@ -104,6 +131,7 @@ Use [advanced.py](advanced.py) for proxy rotation and caching:
 ```bash
 python advanced.py -f dorks.txt --cache
 python advanced.py -t example.com -f dorks.txt --proxies proxies.txt
+python advanced.py -e bing -c config.json -f dorks.txt --cache
 ```
 
 ## Troubleshooting
