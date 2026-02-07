@@ -9,8 +9,8 @@ A Python command-line tool that runs Google dork queries from a text file and sa
 - CSV and JSON output
 - Optional console output
 - Target a specific domain with `-t` (adds `site:domain`)
-- Selectable search engine with `-e` (google or bing)
-- Config file support for API keys
+- Selectable search engine with `-e` (google, bing, duckduckgo, searxng)
+- Config file support for API keys and endpoints
 
 ## Installation
 
@@ -32,13 +32,17 @@ filetype:sql database
 
 ## Config File (API Keys)
 
-Edit [config.json](config.json) to add API keys. For Bing, set:
+Edit [config.json](config.json) to add API keys. For Bing and SearXNG, set:
 
 ```json
 {
 	"bing": {
 		"api_key": "YOUR_KEY",
 		"endpoint": "https://api.bing.microsoft.com/v7.0/search"
+	},
+	"searxng": {
+		"api_key": "",
+		"endpoint": "http://localhost:8080"
 	}
 }
 ```
@@ -48,6 +52,8 @@ You can also set environment variables instead of editing the file:
 ```bash
 export BING_API_KEY="YOUR_KEY"
 export BING_ENDPOINT="https://api.bing.microsoft.com/v7.0/search"
+export SEARXNG_API_KEY=""
+export SEARXNG_ENDPOINT="http://localhost:8080"
 ```
 
 ## Usage
@@ -66,6 +72,12 @@ python google_dork_cli.py -t example.com -f dorks.txt
 
 # Use Bing Web Search API
 python google_dork_cli.py -e bing -c config.json -f dorks.txt
+
+# Use DuckDuckGo (no API key)
+python google_dork_cli.py -e duckduckgo -f dorks.txt
+
+# Use SearXNG (self-hosted)
+python google_dork_cli.py -e searxng -c config.json -f dorks.txt
 
 # Custom output prefix
 python google_dork_cli.py -f dorks.txt -o my_results
@@ -100,7 +112,7 @@ site:example.com password
 |--------|-------|------|---------|-------------|
 | `--file` | `-f` | Path | Required | Path to dork queries file |
 | `--target` | `-t` | String | None | Target domain (adds `site:domain`) |
-| `--engine` | `-e` | Choice | google | Search engine (google or bing) |
+| `--engine` | `-e` | Choice | google | Search engine (google, bing, duckduckgo, searxng) |
 | `--config` | `-c` | Path | config.json | Config file with API keys |
 | `--output` | `-o` | Path | results | Output file prefix |
 | `--delay` | `-d` | Float | 2.0 | Delay between requests (seconds) |
@@ -132,6 +144,8 @@ Use [advanced.py](advanced.py) for proxy rotation and caching:
 python advanced.py -f dorks.txt --cache
 python advanced.py -t example.com -f dorks.txt --proxies proxies.txt
 python advanced.py -e bing -c config.json -f dorks.txt --cache
+python advanced.py -e duckduckgo -f dorks.txt --cache
+python advanced.py -e searxng -c config.json -f dorks.txt --cache
 ```
 
 ## Troubleshooting

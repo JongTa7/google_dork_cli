@@ -20,6 +20,7 @@ from urllib3.util.retry import Retry
 
 
 DEFAULT_BING_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+DEFAULT_SEARXNG_ENDPOINT = "http://localhost:8080"
 
 
 def load_config(path: str) -> Dict:
@@ -51,6 +52,17 @@ def resolve_bing_config(config_path: str) -> Dict[str, Optional[str]]:
     )
     if not endpoint:
         endpoint = DEFAULT_BING_ENDPOINT
+    return {"api_key": api_key, "endpoint": endpoint}
+
+
+def resolve_searxng_config(config_path: str) -> Dict[str, Optional[str]]:
+    config = load_config(config_path)
+    api_key = os.getenv("SEARXNG_API_KEY") or get_config_value(config, ["searxng", "api_key"])
+    endpoint = os.getenv("SEARXNG_ENDPOINT") or get_config_value(
+        config, ["searxng", "endpoint"], DEFAULT_SEARXNG_ENDPOINT
+    )
+    if not endpoint:
+        endpoint = DEFAULT_SEARXNG_ENDPOINT
     return {"api_key": api_key, "endpoint": endpoint}
 
 
@@ -163,6 +175,8 @@ class AdvancedGoogleDorkClient:
         engine: str = "google",
         bing_api_key: Optional[str] = None,
         bing_endpoint: Optional[str] = None,
+        searxng_api_key: Optional[str] = None,
+        searxng_endpoint: Optional[str] = None,
     ):
         self.delay = delay
         self.timeout = timeout
@@ -171,6 +185,8 @@ class AdvancedGoogleDorkClient:
         self.engine = engine.lower()
         self.bing_api_key = bing_api_key
         self.bing_endpoint = bing_endpoint or DEFAULT_BING_ENDPOINT
+        self.searxng_api_key = searxng_api_key
+        self.searxng_endpoint = searxng_endpoint or DEFAULT_SEARXNG_ENDPOINT
         self.session = self._create_session()
     
     def _create_session(self) -> requests.Session:
@@ -222,6 +238,10 @@ class AdvancedGoogleDorkClient:
         
         if self.engine == 'bing':
             results = self._search_bing(query)
+        elif self.engine == 'duckduckgo':
+            results = self._search_duckduckgo(query)
+        elif self.engine == 'searxng':
+            results = self._search_searxng(query)
         else:
             results = self._search_google(query)
         
@@ -319,6 +339,85 @@ class AdvancedGoogleDorkClient:
             click.echo(f'Search error for "{query}": {str(e)}', err=True)
         
         return results
+
+    def _search_duckduckgo(self, query: str) -> List[Dict[str, str]]:
+        results = []
+        try:
+            url = 'https://duckduckgo.com/html/'
+            params = {
+                'q': query,
+            }
+            headers = self._get_random_headers()
+            proxy = self.proxies.get_next_proxy() if self.proxies else None
+            response = self.session.get(
+                url,
+                params=params,
+                headers=headers,
+                proxies=proxy,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            for result in soup.select('div.result'):
+                link = result.select_one('a.result__a')
+                if not link:
+                    continue
+                title = link.get_text(strip=True)
+                url_str = link.get('href', '')
+                snippet_elem = result.select_one('.result__snippet')
+                snippet = snippet_elem.get_text(strip=True) if snippet_elem else 'N/A'
+                if url_str and url_str.startswith('http'):
+                    results.append({
+                        'title': title,
+                        'url': url_str,
+                        'snippet': snippet,
+                        'domain': urlparse(url_str).netloc,
+                    })
+        except Exception as e:
+            click.echo(f'Search error for "{query}": {str(e)}', err=True)
+        
+        return results
+
+    def _search_searxng(self, query: str) -> List[Dict[str, str]]:
+        if not self.searxng_endpoint:
+            click.echo('SearXNG endpoint is missing. Set SEARXNG_ENDPOINT or config.json.', err=True)
+            return []
+        
+        results = []
+        try:
+            headers = {
+                'User-Agent': random.choice(self.USER_AGENTS),
+            }
+            base_url = self.searxng_endpoint.rstrip('/')
+            url = f'{base_url}/search'
+            params = {
+                'q': query,
+                'format': 'json',
+            }
+            if self.searxng_api_key:
+                params['api_key'] = self.searxng_api_key
+            proxy = self.proxies.get_next_proxy() if self.proxies else None
+            response = self.session.get(
+                url,
+                headers=headers,
+                params=params,
+                proxies=proxy,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get('results', []):
+                url_str = item.get('url', '')
+                results.append({
+                    'title': item.get('title', ''),
+                    'url': url_str,
+                    'snippet': item.get('content', '') or item.get('snippet', ''),
+                    'domain': urlparse(url_str).netloc if url_str else '',
+                })
+        except Exception as e:
+            click.echo(f'Search error for "{query}": {str(e)}', err=True)
+        
+        return results
     
     def search_multiple(self, queries: List[str], progress: bool = True) -> Dict:
         """Search multiple queries with progress tracking"""
@@ -363,8 +462,8 @@ def save_to_json(results: Dict[str, List[Dict]], output_file: str):
               help='Dork queries file')
 @click.option('--target', '-t', type=str, default=None,
               help='Target domain (site:example.com)')
-@click.option('--engine', '-e', type=click.Choice(['google', 'bing'], case_sensitive=False),
-              default='google', help='Search engine to use: google or bing')
+@click.option('--engine', '-e', type=click.Choice(['google', 'bing', 'duckduckgo', 'searxng'], case_sensitive=False),
+              default='google', help='Search engine to use: google, bing, duckduckgo, or searxng')
 @click.option('--config', '-c', type=click.Path(exists=False),
               default='config.json', help='Path to config.json for API keys')
 @click.option('--output', '-o', type=click.Path(), default='results',
@@ -406,8 +505,12 @@ def main(file, target, engine, config, output, delay, proxies, cache, output_csv
     
     engine = engine.lower()
     bing_config = resolve_bing_config(config)
+    searxng_config = resolve_searxng_config(config)
     if engine == 'bing' and not bing_config['api_key']:
         click.echo('Missing Bing API key. Set BING_API_KEY or update config.json.', err=True)
+        return
+    if engine == 'searxng' and not searxng_config['endpoint']:
+        click.echo('Missing SearXNG endpoint. Set SEARXNG_ENDPOINT or update config.json.', err=True)
         return
     
     # Setup proxy rotation
@@ -433,7 +536,9 @@ def main(file, target, engine, config, output, delay, proxies, cache, output_csv
         proxies=proxy_rotation,
         engine=engine,
         bing_api_key=bing_config['api_key'],
-        bing_endpoint=bing_config['endpoint']
+        bing_endpoint=bing_config['endpoint'],
+        searxng_api_key=searxng_config['api_key'],
+        searxng_endpoint=searxng_config['endpoint']
     )
     results = client.search_multiple(queries)
     

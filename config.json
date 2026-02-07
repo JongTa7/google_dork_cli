@@ -2,5 +2,9 @@
   "bing": {
     "api_key": "",
     "endpoint": "https://api.bing.microsoft.com/v7.0/search"
+  },
+  "searxng": {
+    "api_key": "",
+    "endpoint": "http://localhost:8080"
   }
 }
