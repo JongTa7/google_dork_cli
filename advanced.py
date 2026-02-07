@@ -135,7 +135,7 @@ class AdvancedGoogleDorkClient:
         retry_strategy = Retry(
             total=3,
             status_forcelist=[429, 500, 502, 503, 504],
-            method_whitelist=["GET"],
+            allowed_methods=["GET"],
             backoff_factor=1
         )
         
