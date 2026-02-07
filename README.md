@@ -16,6 +16,8 @@ A Python command-line tool that runs Google dork queries from a text file and sa
 pip install -r requirements.txt
 ```
 
+If you are on Kali with Python 3.13/3.14, this project avoids `lxml` so you should not see build errors.
+
 ## Prepare Your Query File
 
 Create a text file with one query per line:
